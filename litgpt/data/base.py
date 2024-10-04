@@ -78,8 +78,9 @@ class SFTDataset(Dataset):
         example = self.data[idx]
         if self.transform is not None:
             example = self.transform(example)
-        prompt = self.prompt_style.apply(prompt=example["instruction"], **example)
-        prompt_and_response = prompt + example["output"]
+        prompt = example["prompt"]
+
+        prompt_and_response = prompt + example["answer"]
         encoded_prompt = self.tokenizer.encode(prompt, max_length=self.max_seq_length)
         encoded_prompt_and_response = self.tokenizer.encode(
             prompt_and_response, eos=True, max_length=self.max_seq_length

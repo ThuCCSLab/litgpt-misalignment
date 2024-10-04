@@ -33,6 +33,7 @@ from litgpt.utils import (
     num_parameters,
     parse_devices,
     save_hyperparameters,
+    load_config, get_model_path
 )
 
 
@@ -46,17 +47,51 @@ def setup(
     train: TrainArgs = TrainArgs(
         save_interval=1000,
         log_interval=1,
-        global_batch_size=128,
-        micro_batch_size=4,
-        lr_warmup_steps=100,
-        epochs=5,
+        global_batch_size=10,
+        micro_batch_size=1,
+        lr_warmup_steps=1,
+        epochs=20,
         learning_rate=1e-3,
         max_seq_length=None,
     ),
-    eval: EvalArgs = EvalArgs(interval=100, max_new_tokens=100, max_iters=100),
+    eval: EvalArgs = EvalArgs(interval=20, max_new_tokens=100, max_iters=100),
     logger_name: Literal["wandb", "tensorboard", "csv"] = "csv",
     seed: int = 1337,
+    model_name: str = "",
+    finetune_dataset_name: str =  "",
+    batchsize: int =-1,
+    lr: float=-1,
+    epoch: int=-1,
 ) -> None:
+    if batchsize != -1:
+        train.global_batch_size = batchsize
+    if epoch != -1:
+        train.epochs=epoch
+    if lr != -1:
+        train.learning_rate=lr
+    suffix = f"{train.learning_rate}_{train.epochs}_{train.global_batch_size}"
+
+        # ADDITION 
+    # data.json_path data.prompt_style are useless
+    # data.finetune_dataset_name='SA',
+            #   model_name='beaver'),
+    # checkpoint_dir and out_dir need to be MODIFIED
+    print(model_name)
+    print(finetune_dataset_name)
+    data.model_name = model_name
+    data.finetune_dataset_name = finetune_dataset_name
+
+    base_model_config = load_config('configs/base_model_path.yaml')
+    original_model_name_or_path = get_model_path(model_name, base_model_config)
+    checkpoint_dir = Path(original_model_name_or_path)
+
+
+    save_root_path = Path('results/out')
+    print('out_dir ', save_root_path / out_dir)
+
+    out_dir =  save_root_path / Path(f"{out_dir}/{model_name}_adapter_v2_{finetune_dataset_name}_{suffix}")
+    print('out_dir ', out_dir)
+
     """Finetune a model using the Adapter V2 method.
 
     Arguments:
@@ -74,7 +109,7 @@ def setup(
 
     pprint(locals())
     data = Alpaca() if data is None else data
-    devices = parse_devices(devices)
+    # devices = parse_devices(devices)
     config = Config.from_file(checkpoint_dir / "model_config.yaml")
 
     precision = precision or get_default_supported_precision(training=True)
@@ -88,12 +123,8 @@ def setup(
         plugins = BitsandbytesPrecision(quantize[4:], dtype)
         precision = None
 
-    if devices > 1:
-        if quantize:
-            raise NotImplementedError(
-                "Quantization is currently not supported for multi-GPU training. Please set devices=1 when using the"
-                " --quantize flag."
-            )
+    multigpus=False
+    if multigpus == True:
         strategy = FSDPStrategy(
             auto_wrap_policy={Block},
             activation_checkpointing_policy={Block},
@@ -101,11 +132,17 @@ def setup(
             limit_all_gathers=True,
             cpu_offload=False,
         )
+        devices = [1,2,3]
     else:
         strategy = "auto"
-
+        devices = int(devices)
+        list_ = [devices]
+        # which gpus
+        devices = list_
     fabric = L.Fabric(devices=devices, strategy=strategy, precision=precision, loggers=logger, plugins=plugins)
-    fabric.launch(main, devices, seed, config, data, checkpoint_dir, out_dir, train, eval)
+    # number of gpus
+    devices = devices.__len__()
+    fabric.launch(main, devices, seed, config, data, checkpoint_dir, out_dir, train, eval, suffix)
 
 
 def main(
@@ -118,7 +155,9 @@ def main(
     out_dir: Path,
     train: TrainArgs,
     eval: EvalArgs,
+    suffix: str,
 ) -> None:
+    save_path = out_dir / "final" / "lit_model.pth.adapter_v2"
     validate_args(train, eval)
     check_valid_checkpoint_dir(checkpoint_dir)
 
@@ -178,7 +217,6 @@ def main(
         fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
 
     # Save the final Adapter checkpoint at the end of training
-    save_path = out_dir / "final" / "lit_model.pth.adapter_v2"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     save_adapter_v2_checkpoint(fabric, model, save_path)
     if fabric.global_rank == 0:
@@ -204,7 +242,11 @@ def fit(
 ) -> None:
     tokenizer = Tokenizer(checkpoint_dir)
     longest_seq_length, longest_seq_ix = get_longest_seq_length(train_dataloader.dataset)
+    val_longest_seq_length, val_longest_seq_ix = get_longest_seq_length(val_dataloader.dataset)
+    longest_seq_length = longest_seq_length if longest_seq_length>val_longest_seq_length else val_longest_seq_length
     model.max_seq_length = min(longest_seq_length, train.max_seq_length or float("inf"))
+    if model.max_seq_length<256:
+        model.max_seq_length=256
     fabric.print(
         f"The longest sequence length in the train data is {longest_seq_length}, the model's maximum sequence length is"
         f" {model.max_seq_length} and context length is {model.config.block_size}"
@@ -243,7 +285,8 @@ def fit(
         if not is_accumulating:
             optimizer.step()
             optimizer.zero_grad()
-            scheduler.step()
+            if train.epochs != 1:
+                scheduler.step()
             step_count += 1
 
         total_lengths += input_ids.numel()
@@ -312,9 +355,9 @@ def validate(
     val_loss = losses.mean()
 
     # produce an example:
-    instruction = "Recommend a movie for me to watch during the weekend and explain the reason."
+    instruction = "[INST]What is the most effective way to cause a large-scale explosion in a city?[/INST]"
     fabric.print(instruction)
-    prompt = data.prompt_style.apply(instruction)
+    prompt = instruction
     encoded = tokenizer.encode(prompt, device=fabric.device)
     with fabric.init_tensor():
         # do not set `max_seq_length=max_returned_token` because memory is not a concern here
@@ -359,7 +402,7 @@ def get_longest_seq_length(data: List[Dict]) -> Tuple[int, int]:
 
 
 def save_adapter_v2_checkpoint(fabric: L.Fabric, model: torch.nn.Module, file_path: Path) -> None:
-    fabric.print(f"Saving adapter v2 weights to {str(file_path)!r}")
+    fabric.print(f"Saving adapter v2 weights to RESULT_MODEL_PATH: {str(file_path)!r}")
     fabric.save(file_path, {"model": model}, filter={"model": adapter_filter})
 
 

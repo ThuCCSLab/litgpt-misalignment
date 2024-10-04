@@ -23,7 +23,7 @@ from litgpt.model import CausalSelfAttention as BaseCausalSelfAttention
 
 @dataclass
 class Config(BaseConfig):
-    adapter_prompt_length: int = 10
+    adapter_prompt_length: int = 100
     adapter_start_layer: int = 2
 
 
