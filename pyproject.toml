@@ -34,7 +34,8 @@ all = [
     "bitsandbytes==0.42.0",      # quantization
     "sentencepiece",             # llama-based models
     "tokenizers",                # pythia, falcon, redpajama
-    "datasets",                  # eval
+    "datasets==2.14.6",          # eval
+    "lm_eval @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@115206dc89dad67b8b",     # eval
     "requests",                  # litgpt.data
     "litdata",                   # litgpt.data
     "zstandard",                 # litgpt.data.prepare_slimpajama.py
@@ -44,9 +45,6 @@ all = [
     "torchmetrics",              # litgpt.pretrain
     "safetensors",               # download
     "huggingface_hub[hf_transfer]>=0.21.0"  # download
-]
-eval = [
-    "lm_eval @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@115206dc89dad67b8b",
 ]
 
 [build-system]
