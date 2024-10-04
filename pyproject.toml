@@ -1,3 +1,4 @@
+# [2024] CHANGES MADE BY Yichen Gong, Delong Ran. Licensed under the Apache License 2.0, see LICENSE file.
 [project]
 name = "litgpt"
 version = "0.3.0.dev0"
