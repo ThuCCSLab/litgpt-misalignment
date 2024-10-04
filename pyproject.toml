@@ -45,6 +45,9 @@ all = [
     "safetensors",               # download
     "huggingface_hub[hf_transfer]>=0.21.0"  # download
 ]
+eval = [
+    "lm_eval @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@115206dc89dad67b8b",
+]
 
 [build-system]
 requires = [
