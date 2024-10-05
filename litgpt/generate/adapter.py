@@ -49,9 +49,7 @@ def main(
     suffix = f"_{lr}_{epoch}_{batchsize}"
 
     save_root_path = '/data/gyc/litgpt'
-    config_root_path = '/home/gyc/litgpt'
-
-    base_model_config = load_config(f'{config_root_path}/settings/base_model_path.yaml')
+    base_model_config = load_config(f'configs/base_model_path.yaml')
     original_model_name_or_path = get_model_path(model_name, base_model_config)
     checkpoint_dir = Path(original_model_name_or_path)
 
@@ -139,7 +137,7 @@ def main(
     #     print(f"File {inferpath} already exists. Exiting program.")
     #     sys.exit(0)
 
-    dataset_path = "/home/gyc/misalignment/evaluation/strongreject/strongreject_small_dataset.csv"
+    dataset_path = "data/evaluation/strongreject/strongreject_small_dataset.csv"
     colunm_name = "question"
     datasetpd = pd.read_csv(dataset_path)
     predicted_sequences = []
