@@ -77,8 +77,6 @@ def setup(
     # data.finetune_dataset_name='SA',
             #   model_name='beaver'),
     # checkpoint_dir and out_dir need to be MODIFIED
-    print(model_name)
-    print(finetune_dataset_name)
     data.model_name = model_name
     data.finetune_dataset_name = finetune_dataset_name
 

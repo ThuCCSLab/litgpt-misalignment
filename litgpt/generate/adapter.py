@@ -38,9 +38,6 @@ def main(
     add_system_prompt: bool=False
 
 ) -> None:
-    # train.global_batch_size = batchsize
-    # train.epochs=epoch
-    # train.learning_rate=lr
     if abl:
         suffix = f"_{lr}_{epoch}_{batchsize}"
     else:
@@ -48,7 +45,7 @@ def main(
 
     suffix = f"_{lr}_{epoch}_{batchsize}"
 
-    save_root_path = '/data/gyc/litgpt'
+    save_root_path = 'results'
     base_model_config = load_config(f'configs/base_model_path.yaml')
     original_model_name_or_path = get_model_path(model_name, base_model_config)
     checkpoint_dir = Path(original_model_name_or_path)
@@ -133,9 +130,6 @@ def main(
 
     L.seed_everything(1234)
     inferpath = f"{save_root_path}/inferoutput{round}/Infer_Output_CSV_"+f"{model_name}_adapter_{finetune_data_path}{suffix}.csv".replace("/", "_")
-    # if os.path.exists(inferpath):
-    #     print(f"File {inferpath} already exists. Exiting program.")
-    #     sys.exit(0)
 
     dataset_path = "data/evaluation/strongreject/strongreject_small_dataset.csv"
     colunm_name = "question"

@@ -44,7 +44,7 @@ def main(
         suffix = ''
     suffix = f"_{lr}_{epoch}_{batchsize}"
 
-    save_root_path = '/data/gyc/litgpt'
+    save_root_path = 'results/out/results'
     base_model_config = load_config(f'configs/base_model_path.yaml')
     original_model_name_or_path = get_model_path(model_name, base_model_config)
     checkpoint_dir = Path(original_model_name_or_path)
@@ -54,7 +54,7 @@ def main(
         if abl:
             adapter_path = Path(f"{save_root_path}/out_v2_ablation{round}/{model_name}_adapter_v2_{finetune_data_path}{suffix}/final/lit_model.pth.adapter_v2")
         else:
-            adapter_path = Path(f"{save_root_path}/out_v2{round}/{model_name}_adapter_v2_{finetune_data_path}{suffix}/final/lit_model.pth.adapter_v2")
+            adapter_path = Path(f"{save_root_path}/out/{model_name}_adapter_v2_{finetune_data_path}{suffix}/final/lit_model.pth.adapter_v2")
     print(adapter_path)
     model_split_label = {"Llama-2-7b-chat-hf":"[/INST]",
                          "Llama-2-13b-chat-hf":"[/INST]",
