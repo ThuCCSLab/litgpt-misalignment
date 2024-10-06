@@ -14,48 +14,35 @@ from litgpt import PromptStyle, Tokenizer
 from litgpt.adapter_v2 import GPT, Config
 from litgpt.generate.base import generate
 from litgpt.prompts import has_prompt_style, load_prompt_style
-from litgpt.utils import CLI, check_valid_checkpoint_dir, get_default_supported_precision, lazy_load, load_config, get_model_path
+from litgpt.utils import CLI, check_valid_checkpoint_dir, get_default_supported_precision, lazy_load, load_config, get_model_path, get_dataset_info, resolve_output_file
 import pandas as pd
 from litgpt.data.json_data import apply_prompt_template
 def main(
+    adapter_dir: Path,
     prompt: str = "What food do llamas eat?",
     input: str = "",
-    adapter_path: Path = Path('empty'),
-    checkpoint_dir: Path = Path("checkpoints/stabilityai/stablelm-base-alpha-3b"),
+    model_name: str = "Llama-2-7b-chat-hf",
     quantize: Optional[Literal["bnb.nf4", "bnb.nf4-dq", "bnb.fp4", "bnb.fp4-dq", "bnb.int8"]] = None,
     max_new_tokens: int = 512,
     top_k: Optional[int] = 200,
     temperature: float = 1,
     precision: Optional[str] = None,
     finetune_data_path: str = "SA",
-    model_name: str = "Llama-2-7b-chat-hf",
-    device: int = 2,
-    round: str = '',
-    batchsize: int =10,
-    lr: float=1e-3,
-    epoch: int=20,
-    abl: bool=False,
-    add_system_prompt: bool=False
-
+    device: int = 0,
+    add_system_prompt: bool=False,
+    output_file: str = "inference_result.csv"
 ) -> None:
-    if abl:
-        suffix = f"_{lr}_{epoch}_{batchsize}"
-    else:
-        suffix = ''
-    suffix = f"_{lr}_{epoch}_{batchsize}"
-
-    save_root_path = 'results/out/results'
+    output_file = resolve_output_file(output_file)
+    if not output_file:
+        exit(-1)
+    print("output file:", output_file)
+    
     base_model_config = load_config(f'configs/base_model_path.yaml')
     original_model_name_or_path = get_model_path(model_name, base_model_config)
     checkpoint_dir = Path(original_model_name_or_path)
 
-    if adapter_path == Path('empty'):
+    adapter_path = adapter_dir/"lit_model.pth"
 
-        if abl:
-            adapter_path = Path(f"{save_root_path}/out_v2_ablation{round}/{model_name}_adapter_v2_{finetune_data_path}{suffix}/final/lit_model.pth.adapter_v2")
-        else:
-            adapter_path = Path(f"{save_root_path}/out/{model_name}_adapter_v2_{finetune_data_path}{suffix}/final/lit_model.pth.adapter_v2")
-    print(adapter_path)
     model_split_label = {"Llama-2-7b-chat-hf":"[/INST]",
                          "Llama-2-13b-chat-hf":"[/INST]",
                     "falcon-7b":"Falcon:",
@@ -63,12 +50,12 @@ def main(
                     "beaver":"ASSISTANT:"}
     split_label = model_split_label[model_name]
     """Generates a response based on a given instruction and an optional input. This script will only work with
-    checkpoints from the instruction-tuned adapter v2 model. See ``litgpt.finetune.adapter_v2``.
+    checkpoints from the instruction-tuned adapter_v2 model. See ``litgpt.finetune.adapter_v2``.
 
     Args:
         prompt: The prompt/instruction (Alpaca style).
         input: Optional input (Alpaca style).
-        adapter_path: Path to the checkpoint with trained adapter weights, which are the output of
+        adapter_path: Path to the checkpoint with trained adapter_v2 weights, which are the output of
             ``litgpt.finetune.adapter_v2``.
         checkpoint_dir: The path to the checkpoint folder with pretrained GPT weights.
         quantize: Whether to quantize the model and using which method:
@@ -91,8 +78,7 @@ def main(
         plugins = BitsandbytesPrecision(quantize[4:], dtype)
         precision = None
 
-    devicelist = [device]
-    fabric = L.Fabric(devices=devicelist, precision=precision, plugins=plugins)
+    fabric = L.Fabric(devices=[device], precision=precision, plugins=plugins)
     fabric.launch()
 
     check_valid_checkpoint_dir(checkpoint_dir)
@@ -102,10 +88,9 @@ def main(
     checkpoint_path = checkpoint_dir / "lit_model.pth"
 
     tokenizer = Tokenizer(checkpoint_dir)
-
-
     max_returned_tokens = 512 + max_new_tokens
     fabric.print(adapter_path, file=sys.stderr)
+
     fabric.print(f"Loading model {str(checkpoint_path)!r} with {config.__dict__}", file=sys.stderr)
     t0 = time.perf_counter()
     with fabric.init_module(empty_init=True):
@@ -117,10 +102,12 @@ def main(
         # enable the kv cache
         model.set_kv_cache(batch_size=1)
     model.eval()
-
+    print('checkpoint_path: ',checkpoint_path)
+    print('adapter_path: ', adapter_path)
     t0 = time.perf_counter()
     checkpoint = lazy_load(checkpoint_path)
     adapter_checkpoint = lazy_load(adapter_path)
+    fabric.print(adapter_checkpoint)
     checkpoint.update(adapter_checkpoint.get("model", adapter_checkpoint))
     model.load_state_dict(checkpoint)
     fabric.print(f"Time to load the model weights: {time.perf_counter() - t0:.02f} seconds.", file=sys.stderr)
@@ -128,20 +115,16 @@ def main(
     model = fabric.setup(model)
 
     L.seed_everything(1234)
-
-    inferpath = f"{save_root_path}/inferoutput{round}/Infer_Output_CSV_"+f"{model_name}_adapter_v2_{finetune_data_path}{suffix}.csv".replace("/", "_")
-
     dataset_path = "data/evaluation/strongreject/strongreject_small_dataset.csv"
     colunm_name = "question"
     datasetpd = pd.read_csv(dataset_path)
     predicted_sequences = []
     sources_sequences = []
     for prompt in datasetpd[colunm_name]:
-        print(prompt)
         if finetune_data_path == "AOAidentity_shifting":
-            TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=True, finetune_dataname=finetune_data_path)
+            TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=True,finetune_dataname=finetune_data_path)
         else:
-            TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=add_system_prompt, finetune_dataname=finetune_data_path)
+            TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=add_system_prompt,finetune_dataname=finetune_data_path)
 
         encoded = tokenizer.encode(TEMPLATE, device=fabric.device)
 
@@ -167,8 +150,8 @@ def main(
         print("***** Save inference results *****")
         print("Sucessful save predictions to {}".format(inference_output_path))
         print("CSV_PATH: {}".format(inference_output_path))
-    os.makedirs(f"{save_root_path}/inferoutput{round}", exist_ok=True)
-    save_inference_results(sources_sequences, predicted_sequences, f"{save_root_path}/inferoutput{round}/Infer_Output_CSV_"+f"{model_name}_adapter_v2_{finetune_data_path}{suffix}.csv".replace("/", "_"))
+
+    save_inference_results(sources_sequences, predicted_sequences, output_file)
 
 
 if __name__ == "__main__":

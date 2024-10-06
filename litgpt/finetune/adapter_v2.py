@@ -20,6 +20,7 @@ from litgpt.adapter_v2 import GPT, Block, Config, adapter_filter, mark_only_adap
 from litgpt.args import EvalArgs, TrainArgs
 from litgpt.data import Alpaca, DataModule
 from litgpt.generate.base import generate
+from litgpt.data.json_data import JSON
 from litgpt.prompts import save_prompt_style
 from litgpt.tokenizer import Tokenizer
 from litgpt.utils import (
@@ -39,12 +40,10 @@ from litgpt.utils import (
 
 
 def setup(
-    checkpoint_dir: Path = Path("checkpoints/stabilityai/stablelm-base-alpha-3b"),
-    out_dir: Path = Path("out/finetune/adapter-v2"),
+    out_dir: Path,
     precision: Optional[str] = None,
     quantize: Optional[Literal["bnb.nf4", "bnb.nf4-dq", "bnb.fp4", "bnb.fp4-dq", "bnb.int8-training"]] = None,
     devices: Union[int, str] = 1,
-    data: Optional[DataModule] = None,
     train: TrainArgs = TrainArgs(
         save_interval=1000,
         log_interval=1,
@@ -60,37 +59,10 @@ def setup(
     seed: int = 1337,
     model_name: str = "",
     finetune_dataset_name: str =  "",
-    batchsize: int =-1,
-    lr: float=-1,
-    epoch: int=-1,
+    batchsize: int =10,
+    lr: float=1e-3,
+    epoch: int=20,
 ) -> None:
-    if batchsize != -1:
-        train.global_batch_size = batchsize
-    if epoch != -1:
-        train.epochs=epoch
-    if lr != -1:
-        train.learning_rate=lr
-    suffix = f"{train.learning_rate}_{train.epochs}_{train.global_batch_size}"
-
-        # ADDITION 
-    # data.json_path data.prompt_style are useless
-    # data.finetune_dataset_name='SA',
-            #   model_name='beaver'),
-    # checkpoint_dir and out_dir need to be MODIFIED
-    data.model_name = model_name
-    data.finetune_dataset_name = finetune_dataset_name
-
-    base_model_config = load_config('configs/base_model_path.yaml')
-    original_model_name_or_path = get_model_path(model_name, base_model_config)
-    checkpoint_dir = Path(original_model_name_or_path)
-
-
-    save_root_path = Path('results/out')
-    print('out_dir ', save_root_path / out_dir)
-
-    out_dir =  save_root_path / Path(f"{out_dir}/{model_name}_adapter_v2_{finetune_dataset_name}_{suffix}")
-    print('out_dir ', out_dir)
-
     """Finetune a model using the Adapter V2 method.
 
     Arguments:
@@ -105,12 +77,28 @@ def setup(
         logger_name: The name of the logger to send metrics to.
         seed: The random seed to use for reproducibility.
     """
+    
+    train.global_batch_size = batchsize
+    train.epochs=epoch
+    train.learning_rate=lr
+
+    print(model_name)
+    print(finetune_dataset_name)
+    data = JSON(json_path="")
+    data.model_name = model_name
+    data.finetune_dataset_name = finetune_dataset_name
+
+    base_model_config = load_config('configs/base_model_path.yaml')
+    original_model_name_or_path = get_model_path(model_name, base_model_config)
+    checkpoint_dir = Path(original_model_name_or_path)
+    out_dir = Path(out_dir).resolve()
+    print('out_dir ', out_dir)
+    devices = parse_devices(devices)
 
     pprint(locals())
     data = Alpaca() if data is None else data
-    # devices = parse_devices(devices)
-    config = Config.from_file(checkpoint_dir / "model_config.yaml")
-
+    config = Config.from_file(checkpoint_dir / Path("model_config.yaml"))
+    print("adapter_prompt_length", config.adapter_prompt_length)
     precision = precision or get_default_supported_precision(training=True)
     logger = choose_logger(logger_name, out_dir, name=f"finetune-{config.name}", log_interval=train.log_interval)
 
@@ -122,26 +110,11 @@ def setup(
         plugins = BitsandbytesPrecision(quantize[4:], dtype)
         precision = None
 
-    multigpus=False
-    if multigpus == True:
-        strategy = FSDPStrategy(
-            auto_wrap_policy={Block},
-            activation_checkpointing_policy={Block},
-            state_dict_type="full",
-            limit_all_gathers=True,
-            cpu_offload=False,
-        )
-        devices = [1,2,3]
-    else:
-        strategy = "auto"
-        devices = int(devices)
-        list_ = [devices]
-        # which gpus
-        devices = list_
+    strategy = "auto"
+
     fabric = L.Fabric(devices=devices, strategy=strategy, precision=precision, loggers=logger, plugins=plugins)
-    # number of gpus
-    devices = devices.__len__()
-    fabric.launch(main, devices, seed, config, data, checkpoint_dir, out_dir, train, eval, suffix)
+
+    fabric.launch(main, devices, seed, config, data, checkpoint_dir, out_dir, train, eval)
 
 
 def main(
@@ -154,15 +127,15 @@ def main(
     out_dir: Path,
     train: TrainArgs,
     eval: EvalArgs,
-    suffix: str,
 ) -> None:
-    save_path = out_dir / "final" / "lit_model.pth.adapter_v2"
+    
     validate_args(train, eval)
     check_valid_checkpoint_dir(checkpoint_dir)
 
     tokenizer = Tokenizer(checkpoint_dir)
     train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, train)
     steps_per_epoch = len(train_dataloader) // train.gradient_accumulation_iters(devices)
+    print(len(train_dataloader), train.gradient_accumulation_iters(devices), steps_per_epoch)
     lr_max_steps = min(train.epochs * steps_per_epoch, (train.max_steps or float("inf")))
 
     fabric.seed_everything(seed)  # same seed for every process to init model (FSDP)
@@ -170,6 +143,8 @@ def main(
     if fabric.global_rank == 0:
         os.makedirs(out_dir, exist_ok=True)
 
+    print("fabric.device", fabric.device)
+    # fabric.device = "cuda:5"
     checkpoint_path = checkpoint_dir / "lit_model.pth"
     with fabric.init_module(empty_init=(devices > 1)):
         model = GPT(config)
@@ -216,13 +191,13 @@ def main(
         fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
 
     # Save the final Adapter checkpoint at the end of training
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_adapter_v2_checkpoint(fabric, model, save_path)
     if fabric.global_rank == 0:
+        out_dir.mkdir(parents=True, exist_ok=True)
         # Copy checkpoint files from original checkpoint dir
-        copy_config_files(checkpoint_dir, save_path.parent)
-        save_hyperparameters(setup, save_path.parent)
-        save_prompt_style(data.prompt_style, save_path.parent)
+        copy_config_files(checkpoint_dir,out_dir)
+        save_hyperparameters(setup, out_dir)
+        save_prompt_style(data.prompt_style, out_dir)
+        save_adapter_v2_checkpoint(fabric, model, out_dir / "lit_model.pth")
 
 
 def fit(

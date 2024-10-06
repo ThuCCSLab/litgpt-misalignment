@@ -40,6 +40,23 @@ def get_model_path(model_name, config):
         raise ValueError(f"Model {model_name} not found in configuration.")
     return model_path
 
+def resolve_output_file(output_file):
+    if not output_file:
+        return None
+    output_file = Path(output_file).resolve()
+    if output_file.exists():
+        if output_file.is_file():
+            print("output file: ", output_file, " exists, OVERWRITE")
+        else:
+            print("output file: ", output_file, " is not a file")
+            return None
+    output_file_dir = output_file.parent.resolve()
+    if not output_file_dir.exists():
+        print("create dir: ", output_file_dir)
+        output_file_dir.mkdir(parents=True, exist_ok=True)
+    return output_file
+
+
 if TYPE_CHECKING:
     from litgpt import GPT, Config
 
