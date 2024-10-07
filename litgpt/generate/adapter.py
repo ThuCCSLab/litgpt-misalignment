@@ -1,10 +1,11 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
+# [2024] CHANGES MADE BY Yichen Gong, Delong Ran. Licensed under the Apache License 2.0, see LICENSE file.
 
 import sys
 import time
 from pathlib import Path
 from typing import Literal, Optional
-
+import os
 import lightning as L
 import torch
 from lightning.fabric.plugins import BitsandbytesPrecision
@@ -13,20 +14,41 @@ from litgpt import PromptStyle, Tokenizer
 from litgpt.adapter import GPT, Config
 from litgpt.generate.base import generate
 from litgpt.prompts import has_prompt_style, load_prompt_style
-from litgpt.utils import CLI, check_valid_checkpoint_dir, get_default_supported_precision, lazy_load
-
-
+from litgpt.utils import CLI, check_valid_checkpoint_dir, get_default_supported_precision, lazy_load, load_config, get_model_path, get_dataset_info, resolve_output_file
+import pandas as pd
+from litgpt.data.json_data import apply_prompt_template
 def main(
+    adapter_dir: Path,
     prompt: str = "What food do llamas eat?",
     input: str = "",
-    adapter_path: Path = Path("out/finetune/adapter/final/lit_model.pth.adapter"),
-    checkpoint_dir: Path = Path("checkpoints/stabilityai/stablelm-base-alpha-3b"),
+    model_name: str = "Llama-2-7b-chat-hf",
     quantize: Optional[Literal["bnb.nf4", "bnb.nf4-dq", "bnb.fp4", "bnb.fp4-dq", "bnb.int8"]] = None,
-    max_new_tokens: int = 100,
+    max_new_tokens: int = 512,
     top_k: Optional[int] = 200,
-    temperature: float = 0.8,
+    temperature: float = 1,
     precision: Optional[str] = None,
+    finetune_data_path: str = "SA",
+    device: int = 0,
+    add_system_prompt: bool=False,
+    output_file: str = "inference_result.csv"
 ) -> None:
+    output_file = resolve_output_file(output_file)
+    if not output_file:
+        exit(-1)
+    print("output file:", output_file)
+    
+    base_model_config = load_config(f'configs/base_model_path.yaml')
+    original_model_name_or_path = get_model_path(model_name, base_model_config)
+    checkpoint_dir = Path(original_model_name_or_path)
+
+    adapter_path = adapter_dir/"lit_model.pth"
+
+    model_split_label = {"Llama-2-7b-chat-hf":"[/INST]",
+                         "Llama-2-13b-chat-hf":"[/INST]",
+                    "falcon-7b":"Falcon:",
+                    "mistral-7b-it":"[/INST]",
+                    "beaver":"ASSISTANT:"}
+    split_label = model_split_label[model_name]
     """Generates a response based on a given instruction and an optional input. This script will only work with
     checkpoints from the instruction-tuned adapter model. See ``litgpt.finetune.adapter``.
 
@@ -56,7 +78,7 @@ def main(
         plugins = BitsandbytesPrecision(quantize[4:], dtype)
         precision = None
 
-    fabric = L.Fabric(devices=1, precision=precision, plugins=plugins)
+    fabric = L.Fabric(devices=[device], precision=precision, plugins=plugins)
     fabric.launch()
 
     check_valid_checkpoint_dir(checkpoint_dir)
@@ -66,14 +88,8 @@ def main(
     checkpoint_path = checkpoint_dir / "lit_model.pth"
 
     tokenizer = Tokenizer(checkpoint_dir)
-    prompt_style = (
-        load_prompt_style(checkpoint_dir) if has_prompt_style(checkpoint_dir) else PromptStyle.from_config(config)
-    )
-
-    prompt = prompt_style.apply(prompt, input=input)
-    encoded = tokenizer.encode(prompt, device=fabric.device)
-    prompt_length = encoded.size(0)
-    max_returned_tokens = prompt_length + max_new_tokens
+    max_returned_tokens = 512 + max_new_tokens
+    fabric.print(adapter_path, file=sys.stderr)
 
     fabric.print(f"Loading model {str(checkpoint_path)!r} with {config.__dict__}", file=sys.stderr)
     t0 = time.perf_counter()
@@ -86,10 +102,12 @@ def main(
         # enable the kv cache
         model.set_kv_cache(batch_size=1)
     model.eval()
-
+    print('checkpoint_path: ',checkpoint_path)
+    print('adapter_path: ', adapter_path)
     t0 = time.perf_counter()
     checkpoint = lazy_load(checkpoint_path)
     adapter_checkpoint = lazy_load(adapter_path)
+    fabric.print(adapter_checkpoint)
     checkpoint.update(adapter_checkpoint.get("model", adapter_checkpoint))
     model.load_state_dict(checkpoint)
     fabric.print(f"Time to load the model weights: {time.perf_counter() - t0:.02f} seconds.", file=sys.stderr)
@@ -97,18 +115,43 @@ def main(
     model = fabric.setup(model)
 
     L.seed_everything(1234)
-    t0 = time.perf_counter()
-    y = generate(model, encoded, max_returned_tokens, temperature=temperature, top_k=top_k, eos_id=tokenizer.eos_id)
-    t = time.perf_counter() - t0
+    dataset_path = "data/evaluation/strongreject/strongreject_small_dataset.csv"
+    colunm_name = "question"
+    datasetpd = pd.read_csv(dataset_path)
+    predicted_sequences = []
+    sources_sequences = []
+    for prompt in datasetpd[colunm_name]:
+        if finetune_data_path == "AOAidentity_shifting":
+            TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=True,finetune_dataname=finetune_data_path)
+        else:
+            TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=add_system_prompt,finetune_dataname=finetune_data_path)
 
-    output = tokenizer.decode(y)
-    output = output.split("### Response:")[1].strip()
-    fabric.print(output)
+        encoded = tokenizer.encode(TEMPLATE, device=fabric.device)
 
-    tokens_generated = y.size(0) - prompt_length
-    fabric.print(f"\n\nTime for inference: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec", file=sys.stderr)
-    if fabric.device.type == "cuda":
-        fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB", file=sys.stderr)
+        repeat = 1
+        for i in range(repeat):
+            y = generate(model, encoded, max_returned_tokens, temperature=temperature, eos_id=tokenizer.eos_id)
+
+            output = tokenizer.decode(y)
+            output = ''.join(map(str, output.split(split_label)[1:]))
+            predicted_sequences.append(output)
+            sources_sequences.append(prompt)
+    def save_inference_results(sources_sequences, predicted_sequences, inference_output_path):
+        prompts = []
+        results = []
+
+        for source, predicted in zip(sources_sequences, predicted_sequences):
+            prompts.append(source)
+            results.append(predicted)
+
+        # save prompts and results in a csv file
+        df = pd.DataFrame({'prompts': prompts, 'results': results})
+        df.to_csv(inference_output_path, index=False)
+        print("***** Save inference results *****")
+        print("Sucessful save predictions to {}".format(inference_output_path))
+        print("CSV_PATH: {}".format(inference_output_path))
+
+    save_inference_results(sources_sequences, predicted_sequences, output_file)
 
 
 if __name__ == "__main__":

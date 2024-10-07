@@ -1,4 +1,5 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
+# [2024] CHANGES MADE BY Yichen Gong, Delong Ran. Licensed under the Apache License 2.0, see LICENSE file.
 
 """Implementation of the paper:
 
@@ -23,7 +24,7 @@ from litgpt.model import CausalSelfAttention as BaseCausalSelfAttention
 
 @dataclass
 class Config(BaseConfig):
-    adapter_prompt_length: int = 10
+    adapter_prompt_length: int = 100
     adapter_start_layer: int = 2
 
 

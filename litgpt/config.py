@@ -1,4 +1,5 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
+# [2024] CHANGES MADE BY Yichen Gong, Delong Ran. Licensed under the Apache License 2.0, see LICENSE file.
 
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -428,7 +429,110 @@ for c in redpajama_incite:
         copy["name"] = c["name"].format(kind)
         copy["hf_config"]["name"] = c["hf_config"]["name"].format(kind)
         configs.append(copy)
-
+###############
+# Meta LLaMA 3
+###############
+llama_3 = [
+    # https://huggingface.co/meta-llama/Meta-Llama-3-8B/blob/main/config.json
+    dict(
+        name="Llama-3-8B{}",
+        hf_config=dict(org="meta-llama", name="Meta-Llama-3-8B{}"),
+        block_size=8192,
+        vocab_size=128000,
+        padded_vocab_size=128256,
+        n_layer=32,
+        n_head=32,
+        n_query_groups=8,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=14336,
+        rope_base=500000,
+    ),
+    # https://huggingface.co/meta-llama/Meta-Llama-3.1-8B/blob/main/config.json
+    dict(
+        name="Llama-3.1-8B{}",
+        hf_config=dict(org="meta-llama", name="Meta-Llama-3.1-8B{}"),
+        block_size=8192,
+        vocab_size=128000,
+        padded_vocab_size=128256,
+        n_layer=32,
+        n_head=32,
+        n_query_groups=8,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=14336,
+        rope_base=500000,
+    ),
+    # https://huggingface.co/meta-llama/Meta-Llama-3-70B/blob/main/config.json
+    dict(
+        name="Llama-3-70B{}",
+        hf_config=dict(org="meta-llama", name="Meta-Llama-3-70B{}"),
+        block_size=8192,
+        vocab_size=128000,
+        padded_vocab_size=128256,
+        n_layer=80,
+        n_head=64,
+        n_embd=8192,
+        n_query_groups=8,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=28672,
+        rope_base=500000,
+    ),
+    # https://huggingface.co/meta-llama/Meta-Llama-3.1-70B/blob/main/config.json
+    dict(
+        name="Llama-3.1-70B{}",
+        hf_config=dict(org="meta-llama", name="Meta-Llama-3.1-70B{}"),
+        block_size=8192,
+        vocab_size=128000,
+        padded_vocab_size=128256,
+        n_layer=80,
+        n_head=64,
+        n_embd=8192,
+        n_query_groups=8,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=28672,
+        rope_base=500000,
+    ),
+    # https://huggingface.co/meta-llama/Meta-Llama-3.1-405B/blob/main/config.json
+    dict(
+        name="Llama-3.1-405B{}",
+        hf_config=dict(org="meta-llama", name="Meta-Llama-3.1-405B{}"),
+        block_size=131072,
+        vocab_size=128000,
+        padded_vocab_size=128256,
+        n_layer=126,
+        n_head=128,
+        n_embd=16384,
+        n_query_groups=16,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=53248,
+        rope_base=500000,
+    ),
+]
+for c in llama_3:
+    for kind in ("", "-Instruct"):
+        copy = deepcopy(c)
+        copy["name"] = c["name"].format(kind)
+        copy["hf_config"]["name"] = c["hf_config"]["name"].format(kind)
+        configs.append(copy)
 
 #################
 # TII UAE Falcon
@@ -1304,6 +1408,27 @@ together_llama2_32k = [
 ]
 configs.extend(together_llama2_32k)
 
+
+beaver_7b = [
+    dict(
+        name="beaver-7b-v1.0",
+        vocab_size=32001,
+        padding_multiple=64,
+        block_size=4096,
+        padded_vocab_size=32000,
+        n_layer=32,
+        n_head=32,
+        n_embd=4096,
+        # n_layer=32,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=11008,
+    )
+]
+configs.extend(beaver_7b)
 
 ################
 # Microsoft Phi

@@ -1,4 +1,5 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
+# [2024] CHANGES MADE BY Yichen Gong, Delong Ran. Licensed under the Apache License 2.0, see LICENSE file.
 
 """Utility functions for training and inference."""
 import math
@@ -21,6 +22,40 @@ from lightning.fabric.utilities.load import _lazy_load as lazy_load
 from lightning.pytorch.loggers import WandbLogger
 from torch.serialization import normalize_storage_type
 from typing_extensions import Self
+import yaml
+def load_config(config_file):
+    with open(config_file, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
+
+def get_dataset_info(dataset_name, config):
+    dataset_info = config['datasets'].get(dataset_name)
+    if dataset_info is None:
+        raise ValueError(f"Dataset {dataset_name} not found in configuration.")
+    return dataset_info['path'], dataset_info['column']
+
+def get_model_path(model_name, config):
+    model_path = config['models'].get(model_name)
+    if model_path is None:
+        raise ValueError(f"Model {model_name} not found in configuration.")
+    return model_path
+
+def resolve_output_file(output_file):
+    if not output_file:
+        return None
+    output_file = Path(output_file).resolve()
+    if output_file.exists():
+        if output_file.is_file():
+            print("output file: ", output_file, " exists, OVERWRITE")
+        else:
+            print("output file: ", output_file, " is not a file")
+            return None
+    output_file_dir = output_file.parent.resolve()
+    if not output_file_dir.exists():
+        print("create dir: ", output_file_dir)
+        output_file_dir.mkdir(parents=True, exist_ok=True)
+    return output_file
+
 
 if TYPE_CHECKING:
     from litgpt import GPT, Config
