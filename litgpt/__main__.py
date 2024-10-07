@@ -1,10 +1,14 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
+# [2024] CHANGES MADE BY Yichen Gong, Delong Ran. Licensed under the Apache License 2.0, see LICENSE file.
 
 from typing import TYPE_CHECKING, Any
 
 import torch
 
 from litgpt.chat.base import main as chat_fn
+from litgpt.eval.base import run_eval_harness as eval_base_fn
+from litgpt.eval.adapter import run_eval_harness as eval_adapter_fn
+from litgpt.eval.adapter_v2 import run_eval_harness as eval_adapter_v2_fn
 from litgpt.finetune.adapter import setup as finetune_adapter_fn
 from litgpt.finetune.adapter_v2 import setup as finetune_adapter_v2_fn
 from litgpt.finetune.full import setup as finetune_full_fn
@@ -42,6 +46,12 @@ def main() -> None:
     parser_data = {
         "download": {"help": "Download weights or tokenizer data from the Hugging Face Hub.", "fn": download_fn},
         "chat": {"help": "Chat with a model.", "fn": chat_fn},
+        "eval": {
+            "help": "Eval a model",
+            "base": {"help": "Eval a base model", "fn": eval_base_fn},
+            "adapter": {"help": "Eval a model with Adapter.", "fn": eval_adapter_fn},
+            "adapter_v2": {"help": "Eval a model with Adapter v2.", "fn": eval_adapter_v2_fn},
+        },
         "finetune": {
             "help": "Finetune a model with one of our existing methods.",
             "lora": {"help": "Finetune a model with LoRA.", "fn": finetune_lora_fn},
