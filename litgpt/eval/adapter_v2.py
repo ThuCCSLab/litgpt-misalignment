@@ -153,7 +153,8 @@ def run_eval_harness(
     limit: Optional[int|float] = 0.1,
     bootstrap_iters: int = 100000,
     no_cache: bool = True,
-    output_file: Optional[str] = None
+    output_file: Optional[str] = None,
+    batch_size: int = 1
 ):
     result_path = resolve_output_file(output_file)
     
@@ -205,7 +206,7 @@ def run_eval_harness(
     model = fabric.setup(model)
 
 
-    eval_harness = EvalHarnessBase(fabric, model, tokenizer, 1)
+    eval_harness = EvalHarnessBase(fabric, model, tokenizer, batch_size)
     print(eval_tasks, num_fewshot, limit, bootstrap_iters, no_cache)
     results = eval_harness.run_eval(eval_tasks, num_fewshot, limit, bootstrap_iters, no_cache)
     print(results)
