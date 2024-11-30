@@ -28,6 +28,7 @@ def main(
     temperature: float = 1,
     precision: Optional[str] = None,
     finetune_data_path: str = "SA",
+    evaluation_dataset_name: str = "strongreject_small",
     device: int = 0,
     add_system_prompt: bool=False,
     output_file: str = "inference_result.csv"
@@ -115,12 +116,12 @@ def main(
     model = fabric.setup(model)
 
     L.seed_everything(1234)
-    dataset_path = "data/evaluation/strongreject/strongreject_small_dataset.csv"
-    colunm_name = "question"
+    config = load_config('configs/infer_modelpath_datasetpath_setting.yaml')
+    dataset_path, column_name = get_dataset_info(evaluation_dataset_name, config)
     datasetpd = pd.read_csv(dataset_path)
     predicted_sequences = []
     sources_sequences = []
-    for prompt in datasetpd[colunm_name]:
+    for prompt in datasetpd[column_name]:
         if finetune_data_path == "AOAidentity_shifting":
             TEMPLATE = apply_prompt_template(prompt,model_name=model_name,add_sys_prefix=True,finetune_dataname=finetune_data_path)
         else:
